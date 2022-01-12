@@ -83,22 +83,18 @@ void ServerImpl::Stop() {
     {
         std::unique_lock<std::mutex> t(lock_main);
         shutdown(_server_socket, SHUT_RDWR);
-        for(auto &socket : sockets)
+        for(auto &socket : sockets){
             shutdown(socket, SHUT_RD);
-        close(_server_socket);
+        }
     }
 }
 
 // See Server.h
 void ServerImpl::Join() {
-    {
-        std::unique_lock<std::mutex> t(lock_main);
-        while(running.load() || !sockets.empty())
-            cv.wait(t);
-        assert(_thread.joinable());
-        _thread.join();
-        //close(_server_socket); если я правильно понял, это нужно в Stop()
-    }
+    std::unique_lock<std::mutex> t(lock_main);
+    assert(_thread.joinable());
+    _thread.join();
+    close(_server_socket);
 }
 
 // See Server.h
@@ -147,7 +143,7 @@ void ServerImpl::OnRun() {
         // TODO: Start new thread and process data from/to connection
         {
             std::unique_lock<std::mutex> lock(lock_main);
-            if(sockets.size() < _n_workers){
+            if(sockets.size() < _n_workers && running){
                 sockets.insert(client_socket);
                 std::thread t(&ServerImpl::SocketWorker, this, client_socket);
                 t.detach();
@@ -155,6 +151,11 @@ void ServerImpl::OnRun() {
                 _logger->warn("Server have a lot of threads");
                 close(client_socket);
             }
+
+            while (!running && sockets.size()){
+                cv.wait(lock);
+            }
+            
         }
     }
 
