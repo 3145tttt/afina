@@ -56,6 +56,9 @@ private:
         std::unique_ptr<lru_node> next;
     };
 
+    //Help function for put
+    bool PutUtils(const std::string &key, const std::string &value, bool ifAbsent);
+
     // Maximum number of bytes could be stored in this cache.
     // i.e all (keys+values) must be not greater than the _max_size
     std::size_t _max_size;
