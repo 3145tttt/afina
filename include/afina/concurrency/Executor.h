@@ -68,10 +68,11 @@ class Executor {
             while (!threads.empty()){
                 stop_condition.wait(_lock);
             }
-        } else {
-            tasks.clear();
         }
-        state = State::kStopped;
+
+        if (!cur_thread_count && tasks.empty()) {
+            state = State::kStopped;
+        }
     }
 
     /**
@@ -86,7 +87,7 @@ class Executor {
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
 
         std::unique_lock<std::mutex> lock(this->mutex);
-        if (state != State::kRun || tasks.size() > max_queue_size) {
+        if (state != State::kRun || tasks.size() == max_queue_size) {
             return false;
         }
         
@@ -97,7 +98,6 @@ class Executor {
                 return perform(this);
             }));
             ++cur_thread_count;
-
         } 
         tasks.push_back(exec);
         empty_condition.notify_one();
@@ -134,6 +134,7 @@ private:
                     --executor->cur_thread_count;
                     if(executor->cur_thread_count == 0 && executor->state == Executor::State::kStopping){
                         executor->stop_condition.notify_all();
+                        executor->state = State::kStopped;
                     }
                     break;
                 }
