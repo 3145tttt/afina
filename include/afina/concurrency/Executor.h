@@ -31,13 +31,20 @@ class Executor {
 
     Executor(std::string name, size_t low_watermark,
             size_t hight_watermark, size_t max_queue_size, size_t idle_time) {
-
-        std::unique_lock<std::mutex> _lock(mutex);
         this->low_watermark = low_watermark;
         this->hight_watermark = hight_watermark;
         this->max_queue_size = max_queue_size;
         this->idle_time = idle_time;
+    }
 
+    ~Executor();
+
+    //When you run Executor create threads
+    void Run() {
+        std::unique_lock<std::mutex> _lock(mutex);
+        if(state == State::kRun) {
+            throw std::runtime_error("Executor already run!\n");
+        }
         for (size_t i = 0; i < low_watermark; ++i){
             threads.emplace_back(std::thread([this] {
                 return perform(this);
@@ -46,8 +53,6 @@ class Executor {
         cur_thread_count = low_watermark;
         state = State::kRun;
     }
-
-    ~Executor();
 
     /**
      * Signal thread pool to stop, it will stop accepting new jobs and close threads just after each become
@@ -63,6 +68,8 @@ class Executor {
             while (!threads.empty()){
                 stop_condition.wait(_lock);
             }
+        } else {
+            tasks.clear();
         }
         state = State::kStopped;
     }
@@ -79,24 +86,22 @@ class Executor {
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
 
         std::unique_lock<std::mutex> lock(this->mutex);
-        if (state != State::kRun) {
+        if (state != State::kRun || tasks.size() > max_queue_size) {
             return false;
         }
         
-        if (active_threads == cur_thread_count && cur_thread_count <= hight_watermark) { // ???
+        if (tasks.size() > threads.size() && cur_thread_count <= hight_watermark) {
+            tasks.push_back(exec);
+            
             threads.emplace_back(std::thread([this] {
                 return perform(this);
             }));
             ++cur_thread_count;
-        }
 
-        // Enqueue new task
-        if (tasks.size() <= max_queue_size) {
-            tasks.push_back(exec);
-            empty_condition.notify_one();
-            return true;
-        }
-        return false;
+        } 
+        tasks.push_back(exec);
+        empty_condition.notify_one();
+        return true;
     }
 
 private:
@@ -115,46 +120,35 @@ private:
             {
                 std::unique_lock<std::mutex> lock(executor->mutex);
                 
-                if(executor->active_threads > 0){
-                    --executor->active_threads;
-                }
 
                 executor->empty_condition.wait_for(lock, std::chrono::milliseconds(executor->idle_time),
-                        [executor]{
-                            return executor->tasks.empty();
-                        }); // ???
-                
-                //if no task or stop
-                if (executor->state != Executor::State::kRun || executor->tasks.empty()) {
-                    if (executor->state == Executor::State::kRun && executor->cur_thread_count > executor->low_watermark 
-                            || executor->state != Executor::State::kRun) {
-                        --executor->cur_thread_count;
-                    
-                        auto t_id = std::this_thread::get_id();
-                        auto it = std::find(executor->threads.begin(), executor->threads.end(), [t_id](std::thread &t){ // ???
-                                return t.get_id() == t_id;
-                                });
-                        (*it).detach();
+                        [executor]{ return executor->tasks.empty(); });
 
-                        if(executor->cur_thread_count == 0){
-                            executor->stop_condition.notify_all();
-                        }
+                if (executor->tasks.empty() && executor->cur_thread_count > executor->low_watermark){    
+                    auto t_id = std::this_thread::get_id();
+                    auto it = std::find(executor->threads.begin(), executor->threads.end(), [t_id](std::thread &t){
+                            return t.get_id() == t_id;
+                            });
+                    (*it).detach();
+
+                    --executor->cur_thread_count;
+                    if(executor->cur_thread_count == 0 && executor->state == Executor::State::kStopping){
+                        executor->stop_condition.notify_all();
                     }
-
-                    if (executor->state == Executor::State::kRun) {
-                        continue;
-                    }
-
-                    break; //thread die
+                    break;
                 }
 
-                ++executor->active_threads; //new active
                 task = executor->tasks.front();
                 executor->tasks.pop_front();
             }
-            task();
+            try {
+            	task();
+            } catch(...) {
+                fprintf(stderr, "Error in task\n");
+            }
         }
     }
+   
 
     /**
      * Mutex to protect state below from concurrent modification
