@@ -137,7 +137,7 @@ public:
      */
     template <typename... Ta> void start(void (*main)(Ta...), Ta &&... args) {
         // To acquire stack begin, create variable on stack and remember its address
-        char StackStartsHere; // нужен volatile но компилиться с ним, не нашел способ обойти это 
+        char StackStartsHere;
         this->StackBottom = &StackStartsHere;
 
         // Start routine execution
