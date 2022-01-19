@@ -14,24 +14,15 @@ bool SimpleLRU::PutIfAbsent(const std::string &key, const std::string &value) {
 }
 
 bool SimpleLRU::PutUtils(const std::string &key, const std::string &value, bool ifAbsent){
-    lru_node* head = _lru_head.get(), *first = head->next.get();
-
     size_t val = key.size() + value.size();
     if(val > _max_size){
         return !ifAbsent;
     }
 
+    lru_node* head = _lru_head.get(), *first = head->next.get();
     auto it = _lru_index.find(key);
     if(it == _lru_index.end()){
-            
-        while(val + _current_size > _max_size){
-            lru_node *node = &_lru_index.find(tail_key)->second.get();
-            _lru_index.erase(node->key);
-            _current_size -= node->key.size() + node->value.size();
-            tail_key = node->prev->key;
-            node->prev->next = nullptr;
-        }
-            
+        FreeSize(val);
         
         if(tail_key == ""){
             tail_key = key;
@@ -49,6 +40,10 @@ bool SimpleLRU::PutUtils(const std::string &key, const std::string &value, bool 
 
     lru_node* cur = &it->second.get();
     if(!ifAbsent) {
+        size_t cur_size = cur->value.size() + cur->key.size();
+        FreeSize(- cur_size + val);
+
+        _current_size = _current_size - cur_size + val;
         cur->value = value;
     }
 
@@ -82,6 +77,11 @@ bool SimpleLRU::PutUtils(const std::string &key, const std::string &value, bool 
 
 // See MapBasedGlobalLockImpl.h
 bool SimpleLRU::Set(const std::string &key, const std::string &value) {
+    size_t val = key.size() + value.size();
+    if(val > _max_size){
+        return false;
+    }
+
     auto it = _lru_index.find(key);
     if(it == _lru_index.end()){
         return false;
@@ -92,7 +92,9 @@ bool SimpleLRU::Set(const std::string &key, const std::string &value) {
         tail_key = cur->prev->key;
     }
 
-    _current_size -= cur->value.size() - value.size();
+    size_t cur_size = cur->value.size() + cur->key.size();
+    FreeSize(- cur_size + val);
+    _current_size = _current_size - cur_size + val;
     cur->value = value;
 
     lru_node* head = _lru_head.get(), *first = head->next.get();
@@ -118,6 +120,16 @@ bool SimpleLRU::Set(const std::string &key, const std::string &value) {
 
     t.release();
     return true;
+}
+
+void SimpleLRU::FreeSize(const size_t offset){
+    while(_current_size + offset > _max_size) {
+        lru_node *node = &_lru_index.find(tail_key)->second.get();
+        _lru_index.erase(node->key);
+        _current_size -= node->key.size() + node->value.size();
+        tail_key = node->prev->key;
+        node->prev->next = nullptr;
+    }
 }
 
 // See MapBasedGlobalLockImpl.h

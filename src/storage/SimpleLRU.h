@@ -59,6 +59,7 @@ private:
     //Help function for put
     bool PutUtils(const std::string &key, const std::string &value, bool ifAbsent);
 
+    void FreeSize(const size_t offset);
     // Maximum number of bytes could be stored in this cache.
     // i.e all (keys+values) must be not greater than the _max_size
     std::size_t _max_size;
