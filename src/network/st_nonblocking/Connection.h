@@ -47,6 +47,9 @@ private:
     std::size_t arg_remains = 0;
     Protocol::Parser parser;
 
+    char client_buffer[4096] = {0};
+    size_t _offset = 0;
+
     std::deque <std::string> out_queue;
     size_t head_offset = 0;
 };

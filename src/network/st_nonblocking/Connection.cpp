@@ -27,13 +27,11 @@ void Connection::OnClose() {
 // See Connection.h
 void Connection::DoRead() {
     _logger->debug("Connection read: {}", _socket);
-    //START COPYPAST
     try {
         int readed_bytes = -1;
-        char client_buffer[4096];
-        while ((readed_bytes = read(_socket, client_buffer, sizeof(client_buffer))) > 0) {
+        while ((readed_bytes = read(_socket, client_buffer + _offset, sizeof(client_buffer) - _offset)) > 0) {
             _logger->debug("Got {} bytes from socket", readed_bytes);
-
+            _offset += readed_bytes;
             // Single block of data readed from the socket could trigger inside actions a multiple times,
             // for example:
             // - read#0: [<command1 start>]
@@ -102,12 +100,14 @@ void Connection::DoRead() {
 
         if (readed_bytes == 0) {
             _logger->debug("Connection closed");
-        } else {
-            throw std::runtime_error(std::string(strerror(errno)));
+        } else { //readed_bytes == -1
+            if (errno != EWOULDBLOCK){
+                OnError();
+            }
         }
     } catch (std::runtime_error &ex) {
         _logger->error("Failed to process connection on descriptor {}: {}", _socket, ex.what());
-        OnClose();
+        OnError();
     }
 }
 
@@ -123,7 +123,8 @@ void Connection::DoWrite() {
             if(n == -1 && errno == EWOULDBLOCK){
                 return;
             } else if (n == -1) {
-                isAlive = false;
+                OnError();
+                break;
             } else {
                 head_offset += n;
             }
@@ -133,7 +134,6 @@ void Connection::DoWrite() {
     }
 
     _event.events &= ~ EPOLLOUT;
-    OnClose();
 }
 
 } // namespace STnonblock
