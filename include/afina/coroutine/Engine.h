@@ -144,6 +144,9 @@ public:
         void *pc = run(main, std::forward<Ta>(args)...);
 
         idle_ctx = new context();
+        idle_ctx->Low = StackBottom;
+        cur_routine = idle_ctx;
+
         if (setjmp(idle_ctx->Environment) > 0) {
             if (alive == nullptr) {
                 _unblocker(*this);
@@ -165,7 +168,7 @@ public:
      * Register new coroutine. It won't receive control until scheduled explicitely or implicitly. In case of some
      * errors function returns -1
      */
-    template <typename... Ta> void *run(void (*func)(Ta...), Ta &&... args) {
+    template <typename... Ta> void *run_impl(char *stack_low, void (*func)(Ta...), Ta &&... args) {
         if (this->StackBottom == 0) {
             // Engine wasn't initialized yet
             return nullptr;
@@ -174,6 +177,7 @@ public:
         // New coroutine context that carries around all information enough to call function
         context *pc = new context();
 
+        pc->Low = stack_low;
         // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
         // that function parameters will be passed along
@@ -225,6 +229,12 @@ public:
         }
 
         return pc;
+    }
+
+
+    template <typename... Ta> void *run(void (*f)(Ta...), Ta &&... args) {
+        char a;
+        return run_impl(&a, f, std::forward<Ta>(args)...);
     }
 };
 

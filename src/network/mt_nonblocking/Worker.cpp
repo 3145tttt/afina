@@ -111,7 +111,7 @@ void Worker::OnRun() {
             }
 
             // Rearm connection
-            if (pconn->isAlive()) {
+            if (pconn->isAlive) {
                 pconn->_event.events |= EPOLLONESHOT;
                 int epoll_ctl_retval;
                 if ((epoll_ctl_retval = epoll_ctl(_epoll_fd, EPOLL_CTL_MOD, pconn->_socket, &pconn->_event))) {
